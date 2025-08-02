@@ -7,11 +7,11 @@ app = create_app()
 with app.app_context():
     print("Seeding database from mock_data.csv...")
     Post.query.delete()
-    
-    # Correct path: looks inside the /backend/app/data folder
-    df = pd.read_csv('app/data/mock_data.csv')
+
+    # Correct path: looks inside the /backend/data folder
+    df = pd.read_csv('data/mock_data.csv')
     records = df.to_dict(orient='records')
-    
+
     print("Analyzing emotions for seed data...")
     enriched_records = analyze_emotions(records)
 
@@ -20,7 +20,7 @@ with app.app_context():
         print("\n\n--- ERROR ---")
         print("Emotion analysis failed. The most likely cause is an invalid or missing GEMINI_API_KEY in your /backend/.env file.")
         raise Exception("Stopping seed due to failed emotion analysis.")
-    
+
     print("Emotion analysis successful. Adding to database...")
     for record in enriched_records:
         post = Post(
@@ -33,6 +33,6 @@ with app.app_context():
             emotion=record.get('emotion')
         )
         db.session.add(post)
-    
+
     db.session.commit()
     print("Database seeding complete!")

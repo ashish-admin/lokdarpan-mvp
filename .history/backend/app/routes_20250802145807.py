@@ -1,4 +1,4 @@
-from flask import Blueprint, jsonify, request, current_app
+from flask import Blueprint, jsonify, request
 from .models import Post, User
 from . import db
 from flask_login import login_user, logout_user, current_user
@@ -15,9 +15,29 @@ wards_gdf = None
 def load_wards_geojson():
     global wards_gdf
     if wards_gdf is None:
-        # --- THIS IS THE NEW, SIMPLER FILE PATH ---
         current_dir = os.path.dirname(os.path.abspath(__file__))
-        geojson_path = os.path.join(current_dir, 'data', 'ghmc_wards.geojson')
+        
+        # --- DEBUGGING SECTION START ---
+        # Let's see what Python thinks the directory structure is.
+        backend_dir = os.path.join(current_dir, '..')
+        data_dir = os.path.join(backend_dir, 'data')
+        
+        print("--- STARTING GEOJSON PATH DEBUG ---")
+        print(f"Current File Directory: {current_dir}")
+        print(f"Calculated Backend Directory: {backend_dir}")
+        print(f"Target Data Directory: {data_dir}")
+        
+        try:
+            print(f"Files found in '{data_dir}': {os.listdir(data_dir)}")
+        except FileNotFoundError:
+            print(f"ERROR: The directory '{data_dir}' does not seem to exist.")
+        except Exception as e:
+            print(f"An unexpected error occurred while listing directory: {e}")
+
+        print("-----------------------------------")
+        # --- DEBUGGING SECTION END ---
+
+        geojson_path = os.path.join(data_dir, 'ghmc_wards.geojson')
         
         if not os.path.exists(geojson_path):
             raise FileNotFoundError(f"GeoJSON file not found at path: {geojson_path}")
@@ -25,7 +45,7 @@ def load_wards_geojson():
         wards_gdf = gpd.read_file(geojson_path)
     return wards_gdf
 
-# --- Authentication and other routes ---
+# --- Authentication and other routes remain the same ---
 @bp.route('/api/v1/login', methods=['POST'])
 def login():
     data = request.get_json()
@@ -46,8 +66,6 @@ def status():
         return jsonify({'logged_in': True})
     else:
         return jsonify({'logged_in': False})
-
-# --- Protected API Endpoints ---
 
 @bp.route('/api/v1/analytics', methods=['GET'])
 def analytics():
@@ -99,22 +117,20 @@ def granular_analytics():
         traceback.print_exc()
         return jsonify({"error": "An error occurred during geo-analysis"}), 500
 
-# (Keep all other routes and imports the same)
-
-# --- NEW, UPGRADED STRATEGIC SUMMARY ENDPOINT ---
+# --- Strategic Summary Endpoint ---
 @bp.route('/api/v1/strategic-summary', methods=['GET'])
 def strategic_summary():
     if not current_user.is_authenticated:
         return jsonify({'message': 'Authentication required'}), 401
-
+    
     try:
         posts = Post.query.all()
-        if not posts or len(posts) < 10: # Require a minimum amount of data
-            return jsonify({"error": "Not enough data for a reliable analysis."})
+        if not posts:
+            return jsonify({"summary": "Not enough data for analysis."})
 
         df = pd.DataFrame([p.to_dict() for p in posts])
         emotion_counts = df['emotion'].value_counts()
-
+        
         positive_emotions = ['Hope', 'Joy']
         negative_emotions = ['Anger', 'Anxiety', 'Sadness', 'Disgust']
 
@@ -122,42 +138,33 @@ def strategic_summary():
         negative_counts = emotion_counts[emotion_counts.index.isin(negative_emotions)]
 
         if positive_counts.empty or negative_counts.empty:
-            return jsonify({"error": "Not enough diverse emotional data for a strategic summary."})
+             return jsonify({"summary": "Not enough diverse emotional data for a strategic summary."})
 
-        top_positive_emotion = positive_counts.idxmax()
-        top_negative_emotion = negative_counts.idxmax()
+        top_positive = positive_counts.idxmax()
+        top_negative = negative_counts.idxmax()
 
-        # Find the most common negative topic by looking at the most frequent angry/anxious post
-        top_negative_post = df[df['emotion'] == top_negative_emotion]['text'].mode()[0]
-        top_positive_post = df[df['emotion'] == top_positive_emotion]['text'].mode()[0]
+        positive_context = df[df['emotion'] == top_positive]['text'].iloc[0]
+        negative_context = df[df['emotion'] == top_negative]['text'].iloc[0]
 
-        # This is the new, more sophisticated prompt
         prompt = f"""
-        You are an expert political strategist for a campaign in Hyderabad, India. Your goal is to provide a clear, actionable intelligence briefing based on public sentiment data.
+        As a political strategist, analyze the following sentiment data.
+        Provide a brief, actionable strategic summary with two parts: "Opportunity" and "Threat".
 
-        **Analysis of Raw Intelligence:**
-        - The dominant positive emotion detected is "{top_positive_emotion}", strongly associated with topics like "{top_positive_post}".
-        - The dominant negative emotion detected is "{top_negative_emotion}", strongly associated with topics like "{top_negative_post}".
+        - The primary positive emotion is "{top_positive}". A key topic driving this is "{positive_context}".
+        - The primary negative emotion is "{top_negative}". A key topic driving this is "{negative_context}".
 
-        **Your Task:**
-        Generate a strategic response in JSON format. The JSON object must contain the following keys:
-        1.  "analysis": A brief, one-sentence analysis of the current political landscape based on the emotions.
-        2.  "opportunity": A specific, actionable strategy to amplify the positive sentiment.
-        3.  "threat": A specific, actionable strategy to mitigate or counter the negative sentiment.
-        4.  "suggested_post": A sample social media post (in English) that directly executes the "threat" mitigation strategy. This post must be empathetic, address the core issue, and pivot to a positive message.
-
-        Provide only the raw JSON object as your response.
+        Based on this, what is the single biggest opportunity to amplify, and what is the single biggest threat to mitigate?
+        Return your response as a valid JSON object with two keys: "opportunity" and "threat".
         """
 
-        summary_json = generate_ai_response(prompt)
+        summary_json = analyze_emotions_for_summary(prompt)
         return jsonify(summary_json)
 
     except Exception as e:
         print(f"Error in strategic summary: {e}")
         return jsonify({"error": "Failed to generate strategic summary."}), 500
 
-def generate_ai_response(prompt):
-    # Helper function to call the Gemini API
+def analyze_emotions_for_summary(prompt):
     import google.generativeai as genai
     model = genai.GenerativeModel(
         'gemini-1.5-flash-latest',
