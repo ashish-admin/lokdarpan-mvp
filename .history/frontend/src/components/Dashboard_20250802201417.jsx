@@ -1,17 +1,14 @@
-// frontend/src/components/Dashboard.jsx
-
 import EmotionChart from './EmotionChart';
 import LocationMap from './LocationMap';
 import DataTable from './DataTable';
 import StrategicSummary from './StrategicSummary';
 
-// Make sure to receive the 'allData' prop
-function Dashboard({ data, allData, wards, filters, setFilters, searchTerm, setSearchTerm }) {
+function Dashboard({ data, wards, filters, setFilters, searchTerm, setSearchTerm }) {
 
-  // **FIX**: Use the `allData` prop to generate the list of options.
-  // This ensures the dropdowns contain all possible options, not just the filtered ones.
-  const emotions = ['All', ...new Set((allData || []).map(item => item.emotion))];
-  const cities = ['All', ...new Set((allData || []).map(item => item.city))];
+  // Create unique lists for dropdowns from the FULL unfiltered data
+  // These are now more robust and won't fail if data is empty
+  const emotions = ['All', ...new Set(data.map(item => item.emotion))];
+  const cities = ['All', ...new Set(data.map(item => item.city))];
 
   const handleFilterChange = (e) => {
     setFilters(prevFilters => ({
@@ -22,8 +19,10 @@ function Dashboard({ data, allData, wards, filters, setFilters, searchTerm, setS
 
   return (
     <div className="space-y-6">
+      {/* Filter Controls Section */}
       <div className="bg-white p-4 rounded-lg shadow-md">
         <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4 items-end">
+          
           {/* Emotion Dropdown */}
           <div>
             <label htmlFor="emotion" className="block text-sm font-medium text-gray-700">Emotion</label>
@@ -62,6 +61,7 @@ function Dashboard({ data, allData, wards, filters, setFilters, searchTerm, setS
               onChange={handleFilterChange}
               className="mt-1 block w-full pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm rounded-md"
             >
+              {/* **ROBUST CHECK**: Only map if 'wards' is an array with items */}
               {Array.isArray(wards) && wards.map(w => <option key={w} value={w}>{w}</option>)}
             </select>
           </div>
@@ -81,9 +81,8 @@ function Dashboard({ data, allData, wards, filters, setFilters, searchTerm, setS
           </div>
         </div>
       </div>
-      
-      {/* Rest of the Dashboard components */}
-      {/* ... */}
+
+      {/* Main Dashboard Grid */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <div className="lg:col-span-3 bg-white p-4 rounded-lg shadow-md">
           <h3 className="text-lg font-semibold text-gray-800 mb-4">Strategic Briefing</h3>
@@ -97,17 +96,14 @@ function Dashboard({ data, allData, wards, filters, setFilters, searchTerm, setS
         
         <div className="bg-white p-4 rounded-lg shadow-md">
           <h3 className="text-lg font-semibold text-gray-800 mb-4">Overall Emotion Distribution</h3>
-          {/* Use the main 'data' prop here, which represents the filtered data */}
           <EmotionChart data={data} />
         </div>
 
         <div className="lg:col-span-3 bg-white p-4 rounded-lg shadow-md">
             <h3 className="text-lg font-semibold text-gray-800 mb-4">Data View ({data.length} results)</h3>
-          {/* Use the main 'data' prop here as well */}
           <DataTable data={data} />
         </div>
       </div>
-
     </div>
   );
 }

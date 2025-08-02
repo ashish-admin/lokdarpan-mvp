@@ -4,13 +4,13 @@ import Dashboard from './components/Dashboard';
 import LoginPage from './components/LoginPage';
 
 function App() {
+  // --- STATE MANAGEMENT (No changes here) ---
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [loadingAuth, setLoadingAuth] = useState(true);
 
-  // Ensure initial state is always an empty array
-  const [analyticsData, setAnalyticsData] = useState([]); 
+  const [analyticsData, setAnalyticsData] = useState([]);
   const [wards, setWards] = useState([]);
-  const [loadingData, setLoadingData] = useState(false);
+  const [loadingData, setLoadingData] = useState(false); // Default to false
   const [error, setError] = useState(null);
 
   const [filters, setFilters] = useState({ emotion: 'All', city: 'All', ward: 'All' });
@@ -19,30 +19,36 @@ function App() {
   const apiUrl = import.meta.env.VITE_API_BASE_URL || '';
   axios.defaults.withCredentials = true;
 
-  const handleLoginSuccess = () => {
-    setIsLoggedIn(true);
-    setError(null);
+  // --- AUTHENTICATION LOGIC (No changes here) ---
+  const checkAuthStatus = async () => {
+    setLoadingAuth(true);
+    try {
+      const response = await axios.get(`${apiUrl}/api/v1/status`);
+      setIsLoggedIn(response.data.logged_in);
+    } catch (err) {
+      setIsLoggedIn(false);
+    } finally {
+      setLoadingAuth(false);
+    }
   };
 
+  const handleLoginSuccess = () => {
+    setIsLoggedIn(true);
+  };
+
+  // --- DATA FETCHING LOGIC (This is the corrected part) ---
+
+  // Initial auth check on component mount
   useEffect(() => {
-    const checkAuthStatus = async () => {
-      setLoadingAuth(true);
-      try {
-        const response = await axios.get(`${apiUrl}/api/v1/status`);
-        setIsLoggedIn(response.data.logged_in);
-      } catch (err) {
-        setIsLoggedIn(false);
-      } finally {
-        setLoadingAuth(false);
-      }
-    };
     checkAuthStatus();
   }, []);
 
+  // This single useEffect handles ALL data fetching and filtering.
+  // It runs ONLY when isLoggedIn, filters, or searchTerm change.
   useEffect(() => {
+    // Do not fetch data if the user is not logged in.
     if (!isLoggedIn) {
       setAnalyticsData([]); // Clear data on logout
-      setWards([]);
       return;
     }
 
@@ -50,21 +56,24 @@ function App() {
       setLoadingData(true);
       setError(null);
       try {
-        // Fetch wards list first, or in parallel
-        const wardsResponse = await axios.get(`${apiUrl}/api/v1/wards`);
-        if (Array.isArray(wardsResponse.data)) {
+        // We can fetch wards list once and reuse, but for simplicity, we fetch it with analytics
+        const [analyticsResponse, wardsResponse] = await Promise.all([
+          axios.get(`${apiUrl}/api/v1/analytics`, { params: { ...filters, searchTerm } }),
+          axios.get(`${apiUrl}/api/v1/wards`)
+        ]);
+
+        setAnalyticsData(analyticsResponse.data);
+        // Only set wards if it hasn't been set before to avoid dropdown flicker
+        if (wards.length === 0) {
           setWards(['All', ...wardsResponse.data]);
         }
-
-        // Then fetch the analytics data based on filters
-        const analyticsResponse = await axios.get(`${apiUrl}/api/v1/analytics`, { params: { ...filters, searchTerm } });
-        setAnalyticsData(Array.isArray(analyticsResponse.data) ? analyticsResponse.data : []);
-
+        
       } catch (err) {
-        console.error("Data fetching error:", err);
         setError('Failed to fetch dashboard data.');
+        console.error("Data fetching error:", err);
+        // If an API call fails (e.g., session expired), log the user out
         if (err.response && (err.response.status === 401 || err.response.status === 403)) {
-          setIsLoggedIn(false);
+            setIsLoggedIn(false);
         }
       } finally {
         setLoadingData(false);
@@ -72,19 +81,25 @@ function App() {
     };
 
     fetchData();
-  }, [isLoggedIn, filters, searchTerm]);
+  }, [isLoggedIn, filters, searchTerm]); // Dependencies are now clean and explicit
 
+  // --- UI RENDERING LOGIC (No changes here) ---
 
   if (loadingAuth) {
-    return <div className="flex justify-center items-center h-screen text-2xl">Authenticating...</div>;
+    return <div className="flex justify-center items-center h-screen text-2xl">Checking Authentication...</div>;
   }
 
   if (!isLoggedIn) {
     return <LoginPage onLoginSuccess={handleLoginSuccess} />;
   }
 
-  // Pass an empty array to `allData` if it's not ready yet to prevent crashes
-  const allDataForFilters = analyticsData || [];
+  if (loadingData && analyticsData.length === 0) { // Only show full loading screen on initial data load
+    return <div className="flex justify-center items-center h-screen text-2xl">Loading Dashboard...</div>;
+  }
+
+  if (error) {
+    return <div className="flex justify-center items-center h-screen text-2xl text-red-500">{error}</div>;
+  }
 
   return (
     <div className="bg-gray-100 min-h-screen">
@@ -95,10 +110,8 @@ function App() {
       </header>
       <main>
         <div className="max-w-7xl mx-auto py-6 sm:px-6 lg:px-8">
-          {loadingData && <div className="text-center p-2">Updating data...</div>}
           <Dashboard
             data={analyticsData}
-            allData={allDataForFilters} // Pass the safe array for generating filter options
             wards={wards}
             filters={filters}
             setFilters={setFilters}

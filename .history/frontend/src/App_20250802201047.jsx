@@ -7,8 +7,7 @@ function App() {
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [loadingAuth, setLoadingAuth] = useState(true);
 
-  // Ensure initial state is always an empty array
-  const [analyticsData, setAnalyticsData] = useState([]); 
+  const [analyticsData, setAnalyticsData] = useState([]);
   const [wards, setWards] = useState([]);
   const [loadingData, setLoadingData] = useState(false);
   const [error, setError] = useState(null);
@@ -21,9 +20,10 @@ function App() {
 
   const handleLoginSuccess = () => {
     setIsLoggedIn(true);
-    setError(null);
+    setError(null); // Clear any previous errors on new login
   };
 
+  // This single useEffect handles ALL data fetching and filtering.
   useEffect(() => {
     const checkAuthStatus = async () => {
       setLoadingAuth(true);
@@ -41,7 +41,7 @@ function App() {
 
   useEffect(() => {
     if (!isLoggedIn) {
-      setAnalyticsData([]); // Clear data on logout
+      setAnalyticsData([]);
       setWards([]);
       return;
     }
@@ -50,21 +50,26 @@ function App() {
       setLoadingData(true);
       setError(null);
       try {
-        // Fetch wards list first, or in parallel
-        const wardsResponse = await axios.get(`${apiUrl}/api/v1/wards`);
-        if (Array.isArray(wardsResponse.data)) {
-          setWards(['All', ...wardsResponse.data]);
-        }
+        const [analyticsResponse, wardsResponse] = await Promise.all([
+          axios.get(`${apiUrl}/api/v1/analytics`, { params: { ...filters, searchTerm } }),
+          axios.get(`${apiUrl}/api/v1/wards`)
+        ]);
 
-        // Then fetch the analytics data based on filters
-        const analyticsResponse = await axios.get(`${apiUrl}/api/v1/analytics`, { params: { ...filters, searchTerm } });
+        // Defensive check: ensure analytics data is an array
         setAnalyticsData(Array.isArray(analyticsResponse.data) ? analyticsResponse.data : []);
 
+        // Defensive check: ensure wards data is an array before setting state
+        if (Array.isArray(wardsResponse.data)) {
+            setWards(['All', ...wardsResponse.data]);
+        }
+        
       } catch (err) {
-        console.error("Data fetching error:", err);
+        console.error("Data fetching error:", err); // Log the full error
         setError('Failed to fetch dashboard data.');
+
+        // **ROBUST ERROR HANDLING**: Check if err.response exists before accessing status
         if (err.response && (err.response.status === 401 || err.response.status === 403)) {
-          setIsLoggedIn(false);
+          setIsLoggedIn(false); // Log out if session is invalid
         }
       } finally {
         setLoadingData(false);
@@ -74,6 +79,7 @@ function App() {
     fetchData();
   }, [isLoggedIn, filters, searchTerm]);
 
+  // --- UI RENDERING LOGIC ---
 
   if (loadingAuth) {
     return <div className="flex justify-center items-center h-screen text-2xl">Authenticating...</div>;
@@ -83,8 +89,15 @@ function App() {
     return <LoginPage onLoginSuccess={handleLoginSuccess} />;
   }
 
-  // Pass an empty array to `allData` if it's not ready yet to prevent crashes
-  const allDataForFilters = analyticsData || [];
+  // Show a loading screen only on the initial fetch
+  if (loadingData && analyticsData.length === 0) {
+    return <div className="flex justify-center items-center h-screen text-2xl">Loading Dashboard...</div>;
+  }
+
+  // Always show a clear error message if something went wrong
+  if (error) {
+    return <div className="flex justify-center items-center h-screen text-2xl text-red-500">{error}</div>;
+  }
 
   return (
     <div className="bg-gray-100 min-h-screen">
@@ -95,10 +108,10 @@ function App() {
       </header>
       <main>
         <div className="max-w-7xl mx-auto py-6 sm:px-6 lg:px-8">
+          {/* We can add a small loading indicator for subsequent loads */}
           {loadingData && <div className="text-center p-2">Updating data...</div>}
           <Dashboard
             data={analyticsData}
-            allData={allDataForFilters} // Pass the safe array for generating filter options
             wards={wards}
             filters={filters}
             setFilters={setFilters}

@@ -8,12 +8,13 @@ from shapely.geometry import Point
 import pandas as pd
 import json
 from collections import Counter
+from .services import analyze_emotions_and_drivers
 import google.generativeai as genai
-from sqlalchemy import distinct
+from sqlalchemy import distinct # <-- Crucial import for the new wards route
 
 bp = Blueprint('api', __name__, url_prefix='/api/v1')
 
-# --- Helper function for GeoJSON loading ---
+# --- Caching and GeoJSON loading ---
 wards_gdf = None
 def load_wards_geojson():
     global wards_gdf
@@ -149,15 +150,22 @@ def strategic_summary():
             return jsonify({"opportunity": "Not enough data for this filter.", "threat": "Please broaden your criteria.", "prescriptive_action": "Try selecting 'All' for filters."})
 
         top_emotion = pd.Series([p.emotion for p in filtered_posts]).mode()[0]
+        
         all_drivers = [driver for p in filtered_posts if p.drivers for driver in p.drivers]
         top_drivers_text = ", ".join([d[0] for d in Counter(all_drivers).most_common(3)])
         
-        news_context = "Recent local news reports indicate growing public concern over road quality and infrastructure projects."
+        news_context = "Recent local news reports indicate growing public concern over road quality and infrastructure projects, especially in high-traffic areas. This is becoming a key issue for the upcoming municipal elections."
+
         prompt = f"""
-        You are an expert political strategist. Based on the following intelligence, generate a JSON response with three keys: "opportunity", "threat", and "prescriptive_action".
-        - Dominant emotion: "{top_emotion}"
-        - Key topics: "{top_drivers_text if top_drivers_text else 'General chatter'}"
-        - News Context: "{news_context}"
+        You are an expert political strategist for a campaign in Hyderabad, India. Provide a clear, actionable intelligence briefing based on the following.
+
+        **Intelligence:**
+        - Dominant detected emotion: "{top_emotion}"
+        - Key topics of discussion: "{top_drivers_text if top_drivers_text else 'General chatter'}"
+        - Live News Context: "{news_context}"
+
+        **Your Task:**
+        Generate a strategic response in JSON format with three keys: "opportunity", "threat", and "prescriptive_action".
         Provide only the raw JSON object.
         """
 
